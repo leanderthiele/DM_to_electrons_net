@@ -1,4 +1,3 @@
-import os.path
 import copy
 
 import torch
@@ -250,25 +249,14 @@ if __name__ == '__main__' :
     
     model = Network(cfg.this_network)
 
-    # check that this is all correct
     summary(model, [(1, cfg.DM_sidelength, cfg.DM_sidelength, cfg.DM_sidelength),
                     (1, cfg.gas_sidelength, cfg.gas_sidelength, cfg.gas_sidelength)],
             device='cpu')
     
-    # try to load networks from disk
-    PATH = '/tigress/lthiele/good_networks'
+    for s in ['density', 'pressure'] :
+        
+        fname = 'trained_net_electron_%s.pt'%s
 
-    for s in ['Mar2_baseline', 'Mar10_NE_best'] :
-
-        fname = os.path.join(PATH, 'trained_network_%s.pt'%s)
-
-        # the .pt files contain some other stuff, namely the optimizer and lr scheduler states
-        # I'll leave them in for now
-        state = torch.load(fname, map_location='cpu')['network_state_dict']
-
-        # there is a slight inconvenience here in that we trained the networks with pytorch's DataParallel
-        # which leads to the prefix 'module.' being added to all the entries.
-        state = { k[7:]: v for k, v in state.items() }
+        state = torch.load(fname, map_location='cpu')
 
         model.load_state_dict(state)
-
