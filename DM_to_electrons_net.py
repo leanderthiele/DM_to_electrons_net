@@ -1,3 +1,6 @@
+import os.path
+import copy
+
 import torch
 import torch.nn as nn
 
@@ -29,10 +32,10 @@ def _merge(source, destination):#{{{
     return destination
 #}}}
 
-def __crop_tensor(x, w) :#{{{
-    x = x.narrow(2,w/2,x.shape[2]-w)
-    x = x.narrow(3,w/2,x.shape[3]-w)
-    x = x.narrow(4,w/2,x.shape[4]-w)
+def _crop_tensor(x, w) :#{{{
+    x = x.narrow(2,w//2,x.shape[2]-w)
+    x = x.narrow(3,w//2,x.shape[3]-w)
+    x = x.narrow(4,w//2,x.shape[4]-w)
     return x.contiguous()
 #}}}
 
@@ -82,7 +85,7 @@ class BasicLayer(nn.Module) :#{{{
             self.__conv_fct = nn.Identity()
 
         if self.__merged_dict['crop_output'] :
-            self.__crop_fct = lambda x : __crop_tensor(x, self.__merged_dict['crop_output'])
+            self.__crop_fct = lambda x : _crop_tensor(x, self.__merged_dict['crop_output'])
         else :
             self.__crop_fct = nn.Identity()
 
@@ -209,9 +212,9 @@ class Network(nn.Module) :#{{{
         for ii in range(self.network_dict['NLevels']-2, -1, -1) :
             if self.network_dict['Level_%d'%ii]['concat'] :
                 if self.network_dict['Level_%d'%ii]['resize_to_gas'] :
-                    intermediate_data[ii] = __crop_tensor(
+                    intermediate_data[ii] = _crop_tensor(
                         intermediate_data[ii],
-                        (intermediate_data[ii].shape[-1] * (cfg.DM_sidelength - cfg.gas_sidelength))/cfg.DM_sidelength
+                        (intermediate_data[ii].shape[-1] * (cfg.DM_sidelength - cfg.gas_sidelength))//cfg.DM_sidelength
                         )
                 x = torch.cat((x, intermediate_data[ii]), dim = 1)
             if self.__globallocalskip :
@@ -248,6 +251,24 @@ if __name__ == '__main__' :
     model = Network(cfg.this_network)
 
     # check that this is all correct
-    summary(model, [(cfg.DM_sidelength, cfg.DM_sidelength, cfg.DM_sidelength, 1),
-                    (cfg.gas_sidelength, cfg.gas_sidelength, cfg.gas_sidelength, 1)],
+    summary(model, [(1, cfg.DM_sidelength, cfg.DM_sidelength, cfg.DM_sidelength),
+                    (1, cfg.gas_sidelength, cfg.gas_sidelength, cfg.gas_sidelength)],
             device='cpu')
+    
+    # try to load networks from disk
+    PATH = '/tigress/lthiele/good_networks'
+
+    for s in ['Mar2_baseline', 'Mar10_NE_best'] :
+
+        fname = os.path.join(PATH, 'trained_network_%s.pt'%s)
+
+        # the .pt files contain some other stuff, namely the optimizer and lr scheduler states
+        # I'll leave them in for now
+        state = torch.load(fname, map_location='cpu')['network_state_dict']
+
+        # there is a slight inconvenience here in that we trained the networks with pytorch's DataParallel
+        # which leads to the prefix 'module.' being added to all the entries.
+        state = { k[7:]: v for k, v in state.items() }
+
+        model.load_state_dict(state)
+
